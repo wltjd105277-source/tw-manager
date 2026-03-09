@@ -7,6 +7,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
+// 지성 님 고정 숙제 15종
 const DEFAULT_QUESTS = [
   { title: '발굴지', category: '_일퀘', type: 'char' }, { title: '힘의 근원', category: '_일퀘', type: 'char' },
   { title: '렐릭(네냐플 100마리)', category: '_일퀘', type: 'char' }, { title: '번뜩이는 분노 (SS등급)', category: '_일퀘', type: 'char' },
@@ -47,32 +48,23 @@ export default function Home() {
       setCharacters([])
       setActiveChar('')
     }
-
     const { data: qData } = await supabase.from('tw_quests').select('*').order('id', { ascending: true })
     if (qData) setQuests(qData)
-
     const { data: lData } = await supabase.from('tw_links').select('*').order('id', { ascending: true })
     if (lData) setLinks(lData)
   }
 
-  // --- 캐릭터 관리 (추가/삭제/수정) ---
+  // --- 캐릭터 관리 ---
   const addChar = async () => {
     const name = prompt('새 캐릭터 이름:'); 
     if(name) { await supabase.from('tw_characters').insert([{ name }]); fetchData(); }
   }
-
   const deleteChar = async (id: number, name: string) => {
-    if(!confirm(`'${name}' 캐릭터와 관련된 모든 숙제 데이터를 삭제할까요?`)) return;
-    const { error } = await supabase.from('tw_characters').delete().eq('id', id);
-    if(error) {
-      alert('삭제 실패: ' + error.message);
-    } else {
-      // 캐릭터와 연관된 숙제 데이터도 함께 삭제 (카테고리명이 캐릭터명으로 시작하는 데이터)
-      await supabase.from('tw_quests').delete().like('category', `${name}%`);
-      fetchData();
-    }
+    if(!confirm(`'${name}' 캐릭터를 삭제할까요? (숙제 데이터도 함께 삭제됩니다)`)) return;
+    await supabase.from('tw_characters').delete().eq('id', id);
+    await supabase.from('tw_quests').delete().like('category', `${name}%`);
+    fetchData();
   }
-
   const renameChar = async (id: number, oldName: string) => {
     if(!isAdmin) return;
     const name = prompt('새 이름:', oldName);
@@ -84,15 +76,16 @@ export default function Home() {
     }
   }
 
-  // --- 링크 및 숙제 관리 ---
+  // --- 링크 관리 ---
   const addLink = async () => {
     const n = prompt('이름:'); const u = prompt('URL:','https://');
     if(n&&u){ await supabase.from('tw_links').insert([{ name: n, url: u }]); fetchData(); }
   }
   const deleteLink = async (id: number) => { if(confirm('삭제?')){ await supabase.from('tw_links').delete().eq('id', id); fetchData(); }}
 
+  // --- 숙제 세팅 ---
   const setupDefault = async () => {
-    if(!confirm('모든 데이터를 초기화하고 고정 숙제로 다시 세팅할까요?')) return
+    if(!confirm('모든 데이터를 초기화하고 지성 님 숙제 리스트를 생성할까요?')) return
     await supabase.from('tw_quests').delete().neq('id', 0)
     const items: any[] = []
     DEFAULT_QUESTS.filter(q => q.type === 'account').forEach(q => items.push({ title: q.title, category: q.category, is_done: false }))
@@ -114,6 +107,7 @@ export default function Home() {
     <main className="min-h-screen bg-[#f0f4f8] font-sans text-slate-900 overflow-hidden relative">
       <style>{` @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } } .animate-float { animation: float 3.5s ease-in-out infinite; } `}</style>
 
+      {/* 헤더 */}
       <header className="p-5 flex justify-between items-center bg-white border-b border-blue-100 shadow-sm relative z-30">
         <button onClick={() => setShowLinks(true)} className="p-2 bg-blue-50 rounded-xl text-blue-600 font-bold text-[10px] uppercase">Links</button>
         <div className="text-center">
@@ -125,11 +119,13 @@ export default function Home() {
         <button onClick={() => setShowQuests(true)} className="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase">Tasks</button>
       </header>
 
+      {/* 메인 화면 */}
       <div className="flex flex-col items-center justify-start h-[85vh] p-8 pt-12 relative z-10 overflow-y-auto scrollbar-hide">
         <div onClick={() => isAdmin && setCenterIcon(prompt('URL:', centerIcon) || '')} className={`mb-10 animate-float ${isAdmin ? 'ring-4 ring-blue-500/20 rounded-2xl cursor-pointer' : ''}`}>
           <img src={centerIcon || 'https://api.dicebear.com/7.x/bottts/svg?seed=jelly'} className="w-24 h-24 object-contain drop-shadow-2xl rounded-2xl" />
         </div>
 
+        {/* 퀵 링크 바 */}
         <div className="w-full flex justify-center gap-4 mb-10 overflow-x-auto py-2 scrollbar-hide">
           {links.map((l:any) => (
             <div key={l.id} className="flex flex-col items-center gap-2 relative">
@@ -144,15 +140,48 @@ export default function Home() {
         </div>
 
         <div className="w-full max-w-sm bg-white border border-blue-100 p-6 rounded-[2.5rem] shadow-xl">
-          <div className="flex justify-between items-end mb-4">
+          <div className="flex justify-between items-end mb-4 text-slate-800">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{activeChar || 'None'} Status</span>
-            <span className="text-4xl font-black text-slate-800 italic">{progress}%</span>
+            <span className="text-4xl font-black italic">{progress}%</span>
           </div>
           <div className="w-full h-3 bg-blue-50 rounded-full overflow-hidden mb-6"><div className="h-full bg-blue-600 transition-all duration-1000" style={{ width: `${progress}%` }} /></div>
           <p className="text-center text-[9px] font-black text-slate-300 uppercase">KST: {serverTime}</p>
         </div>
       </div>
 
+      {/* 좌측 링크 사이드바 (삭제 및 추가 버튼 복구!) */}
+      {showLinks && (
+        <div className="fixed inset-0 z-50 flex">
+          <aside className="w-64 bg-white h-full shadow-2xl p-6 border-r border-blue-50 flex flex-col relative z-50">
+             <div className="flex justify-between mb-8 items-center font-black text-slate-800 uppercase tracking-widest">
+               <h2>Portals</h2>
+               <button onClick={() => setShowLinks(false)} className="p-2 text-slate-400">✕</button>
+             </div>
+             <div className="space-y-3 flex-1 overflow-y-auto scrollbar-hide pr-1">
+               {links.map((l:any) => (
+                 <div key={l.id} className="relative group">
+                    <a href={l.url} target="_blank" className="block p-4 bg-blue-50/50 rounded-2xl font-bold text-sm text-slate-600 border border-blue-50 hover:bg-blue-100 transition-all">
+                      {l.name}
+                    </a>
+                    {/* 🔥 링크 삭제 버튼 복구 */}
+                    {isAdmin && (
+                      <button onClick={() => deleteLink(l.id)} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white w-6 h-6 rounded-full text-[10px] shadow-lg flex items-center justify-center">✕</button>
+                    )}
+                 </div>
+               ))}
+               {/* 🔥 링크 추가 버튼 복구 */}
+               {isAdmin && (
+                 <button onClick={addLink} className="w-full py-4 mt-4 border-2 border-dashed border-blue-200 rounded-2xl text-blue-500 text-[10px] font-black uppercase tracking-widest hover:border-blue-500 transition-all">
+                   + Add New Portal
+                 </button>
+               )}
+             </div>
+          </aside>
+          <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={() => setShowLinks(false)} />
+        </div>
+      )}
+
+      {/* 우측 퀘스트 사이드바 (캐릭터 삭제 포함) */}
       {showQuests && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={() => setShowQuests(false)} />
@@ -161,66 +190,35 @@ export default function Home() {
               <span>Registry</span>
               <button onClick={() => setShowQuests(false)} className="text-xl">✕</button>
             </div>
-            {/* 캐릭터 탭 영역 - 삭제 버튼 추가됨 */}
             <div className="p-4 flex gap-3 overflow-x-auto border-b border-blue-50 scrollbar-hide">
               {characters.map(c => (
                 <div key={c.id} className="relative group flex-shrink-0">
-                  <button 
-                    onClick={() => isAdmin ? renameChar(c.id, c.name) : setActiveChar(c.name)} 
-                    className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${activeChar === c.name ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500'}`}
-                  >
-                    {c.name} {isAdmin && '✎'}
-                  </button>
-                  {isAdmin && (
-                    <button 
-                      onClick={() => deleteChar(c.id, c.name)} 
-                      className="absolute -top-1.5 -right-1.5 bg-red-500 text-white w-5 h-5 rounded-full text-[10px] flex items-center justify-center shadow-lg border border-white"
-                    >
-                      ✕
-                    </button>
-                  )}
+                  <button onClick={() => isAdmin ? renameChar(c.id, c.name) : setActiveChar(c.name)} className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${activeChar === c.name ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500'}`}>{c.name} {isAdmin && '✎'}</button>
+                  {isAdmin && <button onClick={() => deleteChar(c.id, c.name)} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white w-5 h-5 rounded-full text-[10px] flex items-center justify-center shadow-lg border border-white">✕</button>}
                 </div>
               ))}
               {isAdmin && <button onClick={addChar} className="px-4 py-2 bg-slate-200 text-slate-600 rounded-xl font-bold text-xs flex-shrink-0">+</button>}
             </div>
-            <div className="p-6 space-y-8 flex-1 overflow-y-auto pr-2">
-              {activeChar ? (
-                [ {id: `${activeChar}_일퀘`, title: '캐릭별 일퀘'}, {id: '계정_일퀘', title: '계정별 일퀘'}, {id: `${activeChar}_주간퀘`, title: '캐릭별 주간퀘'}, {id: '계정_주간퀘', title: '계정별 주간퀘'} ].map(sec => (
-                  <div key={sec.id}>
-                      <h3 className="text-[10px] font-black text-slate-400 mb-4 tracking-widest uppercase flex items-center gap-2"><div className="w-1 h-3 bg-blue-500 rounded-full" /> {sec.title}</h3>
-                      <div className="space-y-3">
-                        {quests.filter(q=>q.category===sec.id).map(q=>(
-                          <div key={q.id} className="flex gap-2">
-                            <div onClick={()=>toggleQuest(q.id,q.is_done)} className={`flex-1 flex justify-between p-4 rounded-2xl border transition-all ${q.is_done ? 'bg-slate-50 border-transparent opacity-30 scale-95' : 'bg-white border-blue-100 cursor-pointer'}`}>
-                              <span className="font-bold text-sm text-slate-700">{q.title}</span>
-                              <div className={`w-5 h-5 rounded-full border-2 ${q.is_done ? 'bg-blue-600 border-blue-600 shadow-md' : 'border-slate-200'}`} />
-                            </div>
-                            {isAdmin && <button onClick={() => supabase.from('tw_quests').delete().eq('id', q.id).then(()=>fetchData())} className="p-4 bg-red-100 text-red-600 rounded-2xl font-bold text-[10px]">삭제</button>}
+            <div className="p-6 space-y-8 flex-1 overflow-y-auto pr-2 scrollbar-hide">
+               {activeChar && [ {id: `${activeChar}_일퀘`, title: '캐릭별 일퀘'}, {id: '계정_일퀘', title: '계정별 일퀘'}, {id: `${activeChar}_주간퀘`, title: '캐릭별 주간퀘'}, {id: '계정_주간퀘', title: '계정별 주간퀘'} ].map(sec => (
+                 <div key={sec.id}>
+                    <h3 className="text-[10px] font-black text-slate-400 mb-4 tracking-widest uppercase flex items-center gap-2"><div className="w-1 h-3 bg-blue-500 rounded-full" /> {sec.title}</h3>
+                    <div className="space-y-3">
+                      {quests.filter(q=>q.category===sec.id).map(q=>(
+                        <div key={q.id} className="flex gap-2">
+                          <div onClick={()=>toggleQuest(q.id,q.is_done)} className={`flex-1 flex justify-between p-4 rounded-2xl border transition-all ${q.is_done ? 'bg-slate-50 border-transparent opacity-30 scale-95' : 'bg-white border-blue-100 cursor-pointer'}`}>
+                            <span className="font-bold text-sm text-slate-700">{q.title}</span>
+                            <div className={`w-5 h-5 rounded-full border-2 ${q.is_done ? 'bg-blue-600 border-blue-600 shadow-md' : 'border-slate-200'}`} />
                           </div>
-                        ))}
-                      </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-slate-400 py-20 text-xs">캐릭터를 추가해주세요.</p>
-              )}
+                          {isAdmin && <button onClick={() => supabase.from('tw_quests').delete().eq('id', q.id).then(()=>fetchData())} className="p-4 bg-red-100 text-red-600 rounded-2xl font-bold text-[10px]">삭제</button>}
+                        </div>
+                      ))}
+                    </div>
+                 </div>
+               ))}
                {isAdmin && <button onClick={setupDefault} className="w-full py-4 mt-10 bg-green-500 text-white rounded-2xl font-black text-xs uppercase shadow-lg shadow-green-500/20">🚀 전체 숙제 세팅</button>}
             </div>
           </aside>
-        </div>
-      )}
-
-      {showLinks && (
-        <div className="fixed inset-0 z-50 flex">
-          <aside className="w-64 bg-white h-full shadow-2xl p-6 border-r border-blue-50 flex flex-col relative z-50">
-             <div className="flex justify-between mb-8 items-center font-black text-slate-800 uppercase tracking-widest"><h2>Links</h2><button onClick={() => setShowLinks(false)}>✕</button></div>
-             <div className="space-y-3 flex-1 overflow-y-auto">
-               {links.map((l:any) => (
-                 <a key={l.id} href={l.url} target="_blank" className="block p-4 bg-blue-50/50 rounded-2xl font-bold text-sm text-slate-600 border border-blue-50">{l.name}</a>
-               ))}
-             </div>
-          </aside>
-          <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={() => setShowLinks(false)} />
         </div>
       )}
     </main>
