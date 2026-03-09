@@ -7,7 +7,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 )
 
-// 지성 님 고정 데이터 (생략 없이 유지)
 const DEFAULT_QUESTS = [
   { title: '발굴지', category: '_일퀘', type: 'char' },
   { title: '힘의 근원', category: '_일퀘', type: 'char' },
@@ -29,14 +28,17 @@ const DEFAULT_QUESTS = [
 export default function Home() {
   const [quests, setQuests] = useState<any[]>([])
   const [characters, setCharacters] = useState<string[]>([])
+  const [links, setLinks] = useState<any[]>([])
   const [activeChar, setActiveChar] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
   const [showLinks, setShowLinks] = useState(false)
-  const [showQuests, setShowQuests] = useState(false) // 퀘스트 사이드바 상태
+  const [showQuests, setShowQuests] = useState(false)
 
   useEffect(() => {
     const charList = JSON.parse(localStorage.getItem('tw_chars') || '["지성A", "지성B", "지성C"]')
     setCharacters(charList); setActiveChar(charList[0])
+    const savedLinks = JSON.parse(localStorage.getItem('tw_links') || '[]')
+    setLinks(savedLinks.length ? savedLinks : [{ name: '매직위버', url: 'https://cafe.daum.net/MagicWeaver' }])
     fetchData()
   }, [])
 
@@ -45,64 +47,85 @@ export default function Home() {
     if (data) setQuests(data)
   }
 
+  // --- 편집 기능들 ---
+  const updateChars = (list: string[]) => { setCharacters(list); localStorage.setItem('tw_chars', JSON.stringify(list)); }
+  const addChar = () => { const name = prompt('새 캐릭:'); if(name) updateChars([...characters, name]); }
+  const renameChar = (old: string) => { const name = prompt('새 이름:', old); if(name) updateChars(characters.map(c => c === old ? name : c)); }
+  
+  const setupDefault = async () => {
+    if(!confirm('고정 숙제로 세팅할까요?')) return
+    await supabase.from('tw_quests').delete().neq('id', 0)
+    const newItems: any[] = []
+    DEFAULT_QUESTS.filter(q => q.type === 'account').forEach(q => newItems.push({ title: q.title, category: q.category, is_done: false }))
+    characters.forEach(char => {
+      DEFAULT_QUESTS.filter(q => q.type === 'char').forEach(q => newItems.push({ title: q.title, category: `${char}${q.category}`, is_done: false }))
+    })
+    await supabase.from('tw_quests').insert(newItems)
+    fetchData()
+  }
+
+  const deleteQuest = async (id: number) => {
+    if(confirm('삭제?')) { await supabase.from('tw_quests').delete().eq('id', id); fetchData(); }
+  }
+
   const toggleQuest = async (id: number, is_done: boolean) => {
-    const nextStatus = !is_done
-    const { error } = await supabase.from('tw_quests').update({ is_done: nextStatus }).eq('id', id)
-    if (!error) setQuests(quests.map(q => q.id === id ? { ...q, is_done: nextStatus } : q))
+    await supabase.from('tw_quests').update({ is_done: !is_done }).eq('id', id)
+    setQuests(quests.map(q => q.id === id ? { ...q, is_done: !is_done } : q))
   }
 
   const getQuests = (cat: string) => quests.filter(q => q.category === cat)
 
   return (
     <main className="min-h-screen bg-[#f8fafc] font-sans text-slate-800 overflow-hidden">
-      {/* 고정 상단 헤더 */}
+      {/* 1. 상단 헤더 (편집 모드 버튼 복구) */}
       <header className="bg-white border-b border-slate-100 p-5 flex justify-between items-center shadow-sm">
-        <button onClick={() => setShowLinks(true)} className="p-2 bg-slate-50 rounded-xl text-blue-500 font-bold text-xs">LINKS</button>
-        <h1 className="text-xl font-black italic tracking-tighter">TW <span className="text-blue-600">WORKSPACE</span></h1>
-        <button onClick={() => setShowQuests(true)} className="p-2 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg shadow-blue-100 font-bold">QUESTS</button>
+        <button onClick={() => setShowLinks(true)} className="p-2 bg-slate-50 rounded-xl text-blue-500 font-bold text-xs uppercase">Links</button>
+        <div className="flex flex-col items-center">
+          <h1 className="text-xl font-black italic tracking-tighter">TW <span className="text-blue-600">PRO</span></h1>
+          <button onClick={() => setIsAdmin(!isAdmin)} className={`text-[8px] font-bold px-2 rounded-full mt-1 ${isAdmin ? 'bg-red-500 text-white' : 'text-slate-300'}`}>
+            {isAdmin ? 'EDITING...' : 'VIEW MODE'}
+          </button>
+        </div>
+        <button onClick={() => setShowQuests(true)} className="p-2 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg shadow-blue-100 uppercase">Quests</button>
       </header>
 
-      {/* 메인 화면 (숙제 리스트가 사라진 텅 빈 공간) */}
-      <div className="flex flex-col items-center justify-center h-[70vh] text-center px-10">
-        <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-6">
-          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      {/* 2. 메인 대기 화면 */}
+      <div className="flex flex-col items-center justify-center h-[75vh] text-center px-10">
+        <div className="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center mb-6 rotate-12">
+           <div className="w-8 h-8 bg-blue-500 rounded-xl animate-pulse" />
         </div>
-        <h2 className="text-2xl font-black text-slate-800 mb-2">오늘도 즐거운 테일즈위버!</h2>
-        <p className="text-slate-400 text-sm font-medium">상단 우측의 <span className="text-blue-600 font-bold">QUESTS</span> 버튼을 눌러 숙제를 확인하세요.</p>
-        
-        {/* 현재 캐릭터 표시 */}
-        <div className="mt-10 px-6 py-3 bg-white border border-slate-100 rounded-3xl shadow-sm">
-           <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase mb-1">Active Hero</p>
-           <p className="text-lg font-black text-blue-600">{activeChar}</p>
-        </div>
+        <h2 className="text-xl font-black text-slate-800 mb-1">{activeChar} 님, 환영합니다!</h2>
+        <p className="text-slate-400 text-xs font-bold">오른쪽 <span className="text-blue-600">QUESTS</span>를 밀어 숙제를 체크하세요.</p>
       </div>
 
-      {/* 우측 퀘스트 사이드바 */}
+      {/* 3. 우측 퀘스트 사이드바 (모든 편집 기능 포함) */}
       {showQuests && (
         <div className="fixed inset-0 z-40 flex justify-end">
           <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={() => setShowQuests(false)} />
-          <aside className="w-[85%] max-w-sm bg-white h-full shadow-2xl overflow-y-auto flex flex-col animate-slide-left">
-            <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-blue-600 text-white">
+          <aside className="w-[85%] max-w-sm bg-white h-full shadow-2xl overflow-y-auto">
+            <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
               <div>
-                <h2 className="font-black text-xl">DAILY QUESTS</h2>
-                <p className="text-[10px] opacity-80 font-bold">RESET AT 00:00</p>
+                <h2 className="font-black text-lg">DAILY CHECK</h2>
+                {isAdmin && <button onClick={setupDefault} className="text-[9px] bg-green-500 px-2 py-1 rounded-md font-bold mt-1">🚀 RESET ALL DATA</button>}
               </div>
-              <button onClick={() => setShowQuests(false)} className="text-2xl">✕</button>
+              <button onClick={() => setShowQuests(false)} className="text-xl">✕</button>
             </div>
 
-            {/* 사이드바 내부 캐릭터 탭 */}
             <div className="p-4 flex gap-2 overflow-x-auto border-b border-slate-50 scrollbar-hide">
               {characters.map(char => (
-                <button key={char} onClick={() => setActiveChar(char)} className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${activeChar === char ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-400'}`}>{char}</button>
+                <button key={char} onClick={() => isAdmin ? renameChar(char) : setActiveChar(char)} className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap ${activeChar === char ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                  {char} {isAdmin && '✎'}
+                </button>
               ))}
+              {isAdmin && <button onClick={addChar} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-bold text-xs">+</button>}
             </div>
 
-            <div className="p-6 space-y-8 flex-1">
+            <div className="p-6 space-y-8">
               {[
                 { id: `${activeChar}_일퀘`, title: '캐릭별 일퀘' },
-                { id: '계정_일퀘', title: '계정별 일퀘' },
+                { id: '계정_일퀘', title: '계정별 일퀘 (공유)' },
                 { id: `${activeChar}_주간퀘`, title: '캐릭별 주간퀘' },
-                { id: '계정_주간퀘', title: '계정별 주간퀘' }
+                { id: '계정_주간퀘', title: '계정별 주간퀘 (공유)' }
               ].map(section => (
                 <div key={section.id}>
                   <h3 className="text-[10px] font-black text-slate-400 mb-4 tracking-widest uppercase flex items-center gap-2">
@@ -110,11 +133,12 @@ export default function Home() {
                   </h3>
                   <div className="space-y-3">
                     {getQuests(section.id).map(q => (
-                      <div key={q.id} onClick={() => toggleQuest(q.id, q.is_done)} className={`flex justify-between p-4 rounded-2xl border-2 transition-all cursor-pointer ${q.is_done ? 'bg-slate-50 border-transparent opacity-50' : 'bg-white border-white shadow-sm hover:border-blue-100'}`}>
-                        <span className={`text-sm font-bold ${q.is_done ? 'line-through text-slate-300' : 'text-slate-700'}`}>{q.title}</span>
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${q.is_done ? 'bg-blue-500 border-blue-500' : 'border-slate-200'}`}>
-                          {q.is_done && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                      <div key={q.id} className="flex gap-2">
+                        <div onClick={() => !isAdmin && toggleQuest(q.id, q.is_done)} className={`flex-1 flex justify-between p-4 rounded-2xl border-2 transition-all ${q.is_done ? 'bg-slate-50 border-transparent opacity-50' : 'bg-white border-white shadow-sm'}`}>
+                          <span className={`text-sm font-bold ${q.is_done ? 'line-through text-slate-300' : 'text-slate-700'}`}>{q.title}</span>
+                          {!isAdmin && <div className={`w-5 h-5 rounded-full border-2 ${q.is_done ? 'bg-blue-500 border-blue-500' : 'border-slate-200'}`} />}
                         </div>
+                        {isAdmin && <button onClick={() => deleteQuest(q.id)} className="p-3 bg-red-50 text-red-500 rounded-xl font-bold text-[10px]">삭제</button>}
                       </div>
                     ))}
                   </div>
@@ -125,12 +149,16 @@ export default function Home() {
         </div>
       )}
 
-      {/* 좌측 링크 사이드바 (기존 코드 유지) */}
+      {/* 4. 좌측 링크 사이드바 (기존 기능 유지) */}
       {showLinks && (
         <div className="fixed inset-0 z-40 flex">
-          <aside className="w-64 bg-white h-full shadow-2xl p-6 border-r flex flex-col animate-slide-right">
-             <div className="flex justify-between mb-8 items-center"><h2 className="font-black text-slate-800">LINKS</h2><button onClick={() => setShowLinks(false)}>✕</button></div>
-             {/* 링크 리스트 영역 */}
+          <aside className="w-64 bg-white h-full shadow-2xl p-6 border-r flex flex-col">
+             <div className="flex justify-between mb-8 items-center"><h2 className="font-black text-slate-800 uppercase">Links</h2><button onClick={() => setShowLinks(false)}>✕</button></div>
+             <div className="space-y-3">
+               {links.map((l:any, i:number) => (
+                 <a key={i} href={l.url} target="_blank" className="block p-4 bg-slate-50 rounded-2xl font-bold text-sm text-slate-600">{l.name}</a>
+               ))}
+             </div>
           </aside>
           <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={() => setShowLinks(false)} />
         </div>
