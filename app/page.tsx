@@ -27,16 +27,13 @@ export default function Home() {
   const [showLinks, setShowLinks] = useState(false)
   const [showQuests, setShowQuests] = useState(false)
   const [serverTime, setServerTime] = useState('')
-  const [welcomeMsg, setWelcomeMsg] = useState('황지성 님 대기 중')
-  const [cheerMsg, setCheerMsg] = useState('오늘도 V-DOOSAN!')
 
   useEffect(() => {
     const charList = JSON.parse(localStorage.getItem('tw_chars') || '["지성A", "지성B", "지성C"]')
     setCharacters(charList); setActiveChar(charList[0])
     const savedLinks = JSON.parse(localStorage.getItem('tw_links') || '[]')
     setLinks(savedLinks.length ? savedLinks : [{ name: '매직위버', url: 'https://cafe.daum.net/MagicWeaver' }, { name: '공홈', url: 'https://tales.nexon.com' }])
-    setWelcomeMsg(localStorage.getItem('tw_welcome') || '황지성 님 대기 중')
-    setCheerMsg(localStorage.getItem('tw_cheer') || '오늘도 V-DOOSAN!')
+    
     fetchData()
     const timer = setInterval(() => {
       const now = new Date();
@@ -50,21 +47,42 @@ export default function Home() {
     if (data) setQuests(data)
   }
 
-  // --- 편집 기능 ---
-  const editWelcome = () => { if(!isAdmin) return; const m = prompt('인사말:', welcomeMsg); if(m) { setWelcomeMsg(m); localStorage.setItem('tw_welcome', m); }}
-  const editCheer = () => { if(!isAdmin) return; const m = prompt('응원 문구:', cheerMsg); if(m) { setCheerMsg(m); localStorage.setItem('tw_cheer', m); }}
   const addLink = () => { const n = prompt('이름:'); const u = prompt('URL:','https://'); if(n&&u){ const nl=[...links,{name:n,url:u}]; setLinks(nl); localStorage.setItem('tw_links',JSON.stringify(nl)); }}
   const deleteLink = (i:number) => { if(confirm('삭제?')){ const nl=links.filter((_,idx)=>idx!==i); setLinks(nl); localStorage.setItem('tw_links',JSON.stringify(nl)); }}
   const updateChars = (list: string[]) => { setCharacters(list); localStorage.setItem('tw_chars', JSON.stringify(list)); }
   const renameChar = (old: string) => { if(!isAdmin) return; const name = prompt('새 이름:', old); if(name) updateChars(characters.map(c => c === old ? name : c)); }
-  const setupDefault = async () => {
-    if(!confirm('리스트를 세팅할까요?')) return
-    await supabase.from('tw_quests').delete().neq('id', 0)
+  const addChar = () => { if(!isAdmin) return; const name = prompt('새 캐릭터:'); if(name) updateChars([...characters, name]); }
+  
+  // 🔥 [오류 수정 시도] 숙제 자동 세팅 (Dashboard RLS 설정이 필수)
+  const setupDefaultQuests = async () => {
+    if (!confirm('기존 리스트를 지우고 지성 님 고정 숙제로 다시 세팅할까요? (에러 발생 시 대시보드 RLS 설정을 확인하세요)')) return;
+    
+    // 1. 기존 데이터 삭제
+    const { error: deleteError } = await supabase.from('tw_quests').delete().neq('id', 0)
+    if (deleteError) { alert(`삭제 에러: ${deleteError.message}\n대시보드에서 ' public.tw_quests' 테이블의 RLS 설정을 'anyone' ALL로 바꿔주세요.`); return; }
+
     const items: any[] = []
-    DEFAULT_QUESTS.filter(q => q.type === 'account').forEach(q => items.push({ title: q.title, category: q.category, is_done: false }))
-    characters.forEach(c => DEFAULT_QUESTS.filter(q => q.type === 'char').forEach(q => items.push({ title: q.title, category: `${c}${q.category}`, is_done: false })))
-    await supabase.from('tw_quests').insert(items); fetchData();
+    
+    // 계정 숙제 (한 번만)
+    DEFAULT_QUESTS.filter(q => q.type === 'account').forEach(q => {
+      items.push({ title: q.title, category: q.category, is_done: false })
+    })
+
+    // 캐릭별 숙제 (각 캐릭별로)
+    characters.forEach(c => {
+      DEFAULT_QUESTS.filter(q => q.type === 'char').forEach(q => {
+        items.push({ title: q.title, category: `${c}${q.category}`, is_done: false })
+      })
+    })
+
+    // 2. 새로운 리스트 생성
+    const { error: insertError } = await supabase.from('tw_quests').insert(items)
+    if (insertError) { alert(`추가 에러: ${insertError.message}\n대시보드에서 ' public.tw_quests' 테이블의 RLS 설정을 'anyone' ALL로 바꿔주세요.`); return; }
+
+    alert('숙제 세팅이 완료되었습니다!');
+    fetchData()
   }
+
   const toggleQuest = async (id: number, is_done: boolean) => {
     const ns = !is_done; await supabase.from('tw_quests').update({ is_done: ns }).eq('id', id)
     setQuests(quests.map(q => q.id === id ? { ...q, is_done: ns } : q))
@@ -77,128 +95,115 @@ export default function Home() {
   }, [quests, activeChar])
 
   return (
-    <main className="min-h-screen bg-[#0f172a] font-sans text-slate-200 overflow-hidden relative">
+    <main className="min-h-screen bg-[#f0f4f8] font-sans text-slate-900 overflow-hidden relative">
       <style jsx global>{`
         @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
         .animate-float { animation: float 3.5s ease-in-out infinite; }
       `}</style>
 
-      {/* 1. 상단 헤더 */}
-      <header className="relative z-10 p-6 flex justify-between items-center bg-slate-950/50 border-b border-white/5">
-        <button onClick={() => setShowLinks(true)} className="p-2 bg-white/5 rounded-xl text-green-400">☰</button>
+      {/* 1. 상단 헤더 (라이트 모드 테마) */}
+      <header className="relative z-10 p-5 flex justify-between items-center bg-white border-b border-blue-100 shadow-sm">
+        <button onClick={() => setShowLinks(true)} className="p-2 bg-blue-50 rounded-xl text-blue-600 font-bold text-xs">SETTINGS</button>
         <div className="text-center">
-          <h1 className="text-xl font-black italic text-white tracking-tighter uppercase">TW <span className="text-green-500">Center</span></h1>
-          <button onClick={() => setIsAdmin(!isAdmin)} className={`text-[8px] font-bold px-2 rounded-full mt-1 ${isAdmin ? 'bg-red-500 text-white animate-pulse' : 'text-slate-500'}`}>
-            {isAdmin ? 'EDITING...' : 'VIEW MODE'}
+          <h1 className="text-xl font-black italic text-slate-800 tracking-tighter uppercase">TW <span className="text-blue-600">PRO</span></h1>
+          <button onClick={() => setIsAdmin(!isAdmin)} className={`text-[8px] font-bold px-2 rounded-full mt-1 ${isAdmin ? 'bg-red-500 text-white animate-pulse' : 'text-slate-400'}`}>
+            {isAdmin ? 'EDIT MODE' : 'PLAYER'}
           </button>
         </div>
-        <button onClick={() => setShowQuests(true)} className="px-3 py-2 bg-green-600 text-white rounded-xl font-black text-[10px]">TASKS</button>
+        <button onClick={() => setShowQuests(true)} className="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] shadow-lg shadow-blue-500/10">TASKS</button>
       </header>
 
-      {/* 2. 메인 화면 (퀵 링크 아이콘 추가) */}
-      <div className="relative z-10 flex flex-col items-center justify-start h-[85vh] p-8 pt-12 overflow-y-auto scrollbar-hide">
-        {/* 젤리삐 아이콘 */}
-        <div className="relative mb-8 animate-float">
-          <svg viewBox="0 0 100 100" className="w-20 h-20 shadow-green-500/20 drop-shadow-2xl">
+      {/* 2. 메인 대시보드 (깨끗하고 밝은 디자인) */}
+      <div className="relative z-10 flex flex-col items-center justify-start h-[85vh] p-8 pt-16 overflow-y-auto scrollbar-hide">
+        {/* 젤리삐 아이콘 (가운데 글씨 삭제) */}
+        <div className="relative mb-12 animate-float">
+          <svg viewBox="0 0 100 100" className="w-20 h-20 shadow-blue-500/20 drop-shadow-2xl">
             <circle cx="50" cy="55" r="35" fill="#FFEB3B" stroke="#222" strokeWidth="2"/><circle cx="40" cy="48" r="3" fill="#222"/><circle cx="60" cy="48" r="3" fill="#222"/>
-            <path d="M45 62C48 65 52 65 55 62" stroke="#222" strokeWidth="2" fill="none"/><path d="M50 20C50 20 65 5 75 10C85 15 70 30 50 25" fill="#4CAF50" stroke="#222" strokeWidth="2"/>
+            <path d="M45 62C48 65 52 65 55 62" stroke="#222" strokeWidth="2" fill="none"/><path d="M50 20C50 20 65 5 75 10C85 15 70 30 50 25" fill="#4CAF50" stroke="#222" strokeWidth="2"/> {/* */}
           </svg>
         </div>
 
-        {/* 인사말 영역 */}
-        <div className="text-center mb-10">
-          <p className="text-[9px] text-green-400 font-bold tracking-[0.2em] uppercase mb-2">KST: {serverTime}</p>
-          <h2 onClick={editWelcome} className={`text-2xl font-black text-white italic ${isAdmin ? 'bg-white/10 rounded cursor-pointer' : ''}`}>
-            {welcomeMsg} {isAdmin && '✎'}
-          </h2>
-          <p onClick={editCheer} className={`text-slate-400 text-xs font-bold mt-1 ${isAdmin ? 'bg-white/10 rounded cursor-pointer' : ''}`}>
-            {cheerMsg} {isAdmin && '✎'}
-          </p>
-        </div>
-
-        {/* 🔥 신규 기능: 메인 퀵 링크 아이콘 바 */}
-        <div className="w-full flex justify-center gap-4 mb-10 overflow-x-auto py-2 scrollbar-hide">
+        {/* 퀵 링크 아이콘 바 */}
+        <div className="w-full flex justify-center gap-4 mb-12 overflow-x-auto py-2 scrollbar-hide">
           {links.map((l:any, i:number) => (
-            <div key={i} className="flex flex-col items-center gap-2 group relative">
-              <a href={l.url} target="_blank" className="w-14 h-14 bg-slate-900/80 border border-white/10 rounded-2xl flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition-all">
-                <span className="text-green-500 font-black text-lg uppercase">{l.name.substring(0,1)}</span>
+            <div key={i} className="flex flex-col items-center gap-2 relative">
+              <a href={l.url} target="_blank" className="w-14 h-14 bg-white border border-blue-100 rounded-2xl flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition-all">
+                <span className="text-blue-600 font-black text-lg uppercase">{l.name.substring(0,1)}</span>
               </a>
-              <span className="text-[10px] font-bold text-slate-500">{l.name}</span>
+              <span className="text-[10px] font-bold text-slate-600 truncate max-w-[70px]">{l.name}</span>
               {isAdmin && (
-                <button onClick={() => deleteLink(i)} className="absolute -top-1 -right-1 bg-red-500 text-white w-5 h-5 rounded-full text-[8px] flex items-center justify-center shadow-md">✕</button>
+                <button onClick={() => deleteLink(i)} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white w-5 h-5 rounded-full text-[8px] flex items-center justify-center shadow-md">✕</button>
               )}
             </div>
           ))}
           {isAdmin && (
-            <button onClick={addLink} className="w-14 h-14 border-2 border-dashed border-white/10 rounded-2xl flex items-center justify-center text-slate-600 font-bold hover:border-green-500 hover:text-green-500 transition-all">+</button>
+            <button onClick={addLink} className="w-14 h-14 border-2 border-dashed border-blue-200 rounded-2xl flex items-center justify-center text-slate-400 font-bold hover:border-blue-500 hover:text-blue-500 transition-all">+</button>
           )}
         </div>
 
         {/* 진행률 카드 */}
-        <div className="w-full max-w-sm bg-slate-900/60 border border-white/10 p-6 rounded-[2.5rem] shadow-2xl backdrop-blur-md">
+        <div className="w-full max-w-sm bg-white border border-blue-100 p-6 rounded-[2.5rem] shadow-xl shadow-blue-500/5">
           <div className="flex justify-between items-end mb-4">
-            <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">{activeChar} Progress</span>
-            <span className="text-4xl font-black text-white italic">{progress}%</span>
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{activeChar} Status</span>
+            <span className="text-4xl font-black text-slate-800 italic">{progress}%</span>
           </div>
-          <div className="w-full h-3 bg-white/5 rounded-full overflow-hidden mb-6"><div className="h-full bg-green-500 transition-all duration-1000 shadow-[0_0_15px_rgba(34,197,94,0.5)]" style={{ width: `${progress}%` }} /></div>
-          <button onClick={() => setShowQuests(true)} className="w-full py-4 bg-green-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest">Open Task List</button>
+          <div className="w-full h-3 bg-blue-50 rounded-full overflow-hidden mb-6 border border-blue-100 p-[1px]"><div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${progress}%` }} /></div>
+          <button onClick={() => setShowQuests(true)} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg shadow-blue-500/20">Check Task List</button>
         </div>
       </div>
 
-      {/* 3. 우측 퀘스트 사이드바 (기능 유지) */}
+      {/* 3. 우측 퀘스트 사이드바 (라이트 모드) */}
       {showQuests && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={() => setShowQuests(false)} />
-          <aside className="w-[85%] max-w-sm bg-[#0f172a] h-full shadow-2xl overflow-y-auto">
-            <div className="p-6 bg-green-700 flex justify-between items-center text-white font-black uppercase">
-              <span className="tracking-tighter italic">Quest Registry</span>
-              {isAdmin && <button onClick={setupDefault} className="text-[8px] bg-black/20 px-2 py-1 rounded">Setup</button>}
+          <div className="flex-1 bg-black/40" onClick={() => setShowQuests(false)} />
+          <aside className="w-[85%] max-w-sm bg-white h-full shadow-2xl overflow-y-auto flex flex-col border-l border-blue-50">
+            <div className="p-6 bg-blue-50 border-b border-blue-100 flex justify-between items-center text-slate-800 font-black uppercase tracking-tighter">
+              <span>Quest Registry</span>
+              {isAdmin && <button onClick={setupDefaultQuests} className="text-[8px] bg-green-500 text-white px-2 py-1.5 rounded-lg shadow uppercase">🚀 Setup</button>}
             </div>
-            <div className="p-4 flex gap-2 overflow-x-auto border-b border-white/5 scrollbar-hide">
+            <div className="p-4 flex gap-2 overflow-x-auto border-b border-blue-50 scrollbar-hide">
               {characters.map(c => (
-                <button key={c} onClick={() => isAdmin ? renameChar(c) : setActiveChar(c)} className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap ${activeChar === c ? 'bg-green-600 text-white' : 'bg-white/5 text-slate-500'}`}>{c} {isAdmin && '✎'}</button>
+                <button key={c} onClick={() => isAdmin ? renameChar(c) : setActiveChar(c)} className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap ${activeChar === c ? 'bg-blue-600 text-white shadow' : 'bg-slate-100 text-slate-500'}`}>{c} {isAdmin && '✎'}</button>
               ))}
+              {isAdmin && <button onClick={addChar} className="px-4 py-2 bg-slate-200 text-slate-600 rounded-xl font-bold text-xs">+</button>}
             </div>
-            <div className="p-6 space-y-8">
-              {/* 숙제 리스트 렌더링 (동일하게 유지) */}
-              {['일퀘', '주간퀘'].map(type => (
-                <div key={type} className="space-y-6">
-                  {[`${activeChar}_${type}`, `계정_${type}`].map(id => (
-                    <div key={id}>
-                      <h3 className="text-[10px] font-black text-green-500 mb-4 tracking-widest uppercase flex items-center gap-2"><div className="w-1 h-3 bg-green-500 rounded-full" /> {id.replace('_', ' ')}</h3>
-                      <div className="space-y-3">
-                        {quests.filter(q => q.category === id).map(q => (
-                          <div key={q.id} onClick={() => !isAdmin && toggleQuest(q.id, q.is_done)} className={`flex justify-between p-4 rounded-2xl border transition-all ${q.is_done ? 'bg-white/5 border-transparent opacity-30 scale-95' : 'bg-white/5 border-white/10 cursor-pointer'}`}>
-                            <span className="font-bold text-sm">{q.title}</span>
-                            {!isAdmin && <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${q.is_done ? 'bg-green-500 border-green-500' : 'border-white/20'}`}>{q.is_done && <div className="w-1.5 h-1.5 bg-white rounded-full" />}</div>}
+            <div className="p-6 space-y-8 flex-1">
+              {[ {id: `${activeChar}_일퀘`, title: '캐릭별 일퀘'}, {id: '계정_일퀘', title: '계정별 일퀘 (전캐릭 공유)'}, {id: `${activeChar}_주간퀘`, title: '캐릭별 주간퀘'}, {id: '계정_주간퀘', title: '계정별 주간퀘 (전캐릭 공유)'} ].map(sec => (
+                 <div key={sec.id}>
+                    <h3 className="text-[10px] font-black text-slate-500 mb-4 tracking-[0.2em] uppercase flex items-center gap-2"><div className="w-1.5 h-1.5 bg-blue-500 rounded-full" /> {sec.title}</h3>
+                    <div className="space-y-3">
+                      {quests.filter(q=>q.category===sec.id).map(q=>(
+                        <div key={q.id} className="flex gap-2 items-center">
+                          <div onClick={()=>!isAdmin&&toggleQuest(q.id,q.is_done)} className={`flex-1 flex justify-between p-5 rounded-3xl border transition-all ${q.is_done ? 'bg-slate-50 border-transparent opacity-30 scale-95' : 'bg-white border-blue-100 hover:border-blue-300 cursor-pointer'}`}>
+                            <span className={`font-bold text-sm ${q.is_done ? 'text-slate-400' : 'text-slate-700'}`}>{q.title}</span>
                           </div>
-                        ))}
-                      </div>
+                          {isAdmin && <button onClick={()=>supabase.from('tw_quests').delete().eq('id', q.id).then(()=>fetchData())} className="p-4 bg-red-100 text-red-600 rounded-2xl font-bold text-xs">삭제</button>}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              ))}
+                 </div>
+               ))}
             </div>
           </aside>
         </div>
       )}
 
-      {/* 4. 좌측 사이드바 (백업용 유지) */}
+      {/* 4. 좌측 링크 사이드바 (라이트 모드) */}
       {showLinks && (
         <div className="fixed inset-0 z-50 flex">
-          <aside className="w-64 bg-[#0f172a] h-full shadow-2xl p-6 border-r border-white/5">
-             <div className="flex justify-between mb-8 items-center font-black text-green-500 uppercase tracking-widest"><h2>Settings</h2><button onClick={() => setShowLinks(false)}>✕</button></div>
-             <p className="text-[10px] text-slate-500 font-bold mb-4 uppercase">Link Management</p>
-             <div className="space-y-3">
+          <aside className="w-64 bg-white h-full shadow-2xl p-6 border-r border-blue-50 flex flex-col">
+             <div className="flex justify-between mb-8 items-center font-black text-slate-800 uppercase tracking-widest"><h2>Links</h2><button onClick={() => setShowLinks(false)}>✕</button></div>
+             <div className="space-y-3 flex-1 overflow-y-auto pr-2 scrollbar-hide">
                {links.map((l:any, i:number) => (
-                 <div key={i} className="flex items-center gap-2">
-                   <a href={l.url} target="_blank" className="flex-1 p-4 bg-white/5 rounded-2xl font-bold text-sm text-slate-400">{l.name}</a>
-                   {isAdmin && <button onClick={() => deleteLink(i)} className="p-4 bg-red-500/10 text-red-500 rounded-2xl font-bold text-xs">✕</button>}
+                 <div key={i} className="relative">
+                    <a href={l.url} target="_blank" className="block p-4 bg-blue-50/50 rounded-2xl font-bold text-sm text-slate-600 hover:bg-blue-100 transition-all border border-blue-50 hover:border-blue-100">{l.name}</a>
+                    {isAdmin && <button onClick={() => deleteLink(i)} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white w-6 h-6 rounded-full text-[10px] shadow">✕</button>}
                  </div>
                ))}
+               {isAdmin && <button onClick={addLink} className="w-full py-4 border-2 border-dashed border-slate-200 rounded-[1.5rem] text-slate-400 text-[10px] font-black uppercase tracking-widest hover:border-blue-500 hover:text-blue-500 transition-all">+ Add Link</button>}
              </div>
           </aside>
-          <div className="flex-1 bg-black/60 backdrop-blur-md" onClick={() => setShowLinks(false)} />
+          <div className="flex-1 bg-black/40" onClick={() => setShowLinks(false)} />
         </div>
       )}
     </main>
